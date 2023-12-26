@@ -11,47 +11,104 @@ spanning trees from every node
 """
 
 
-# Checks if we can a minimum broadcast time at every node
+# Checks if we can have a spanning tree of minimum broadcast time at every node
 # If possible, graph is a broadcast graph
-def is_broadcast_graph(G, max_attempts=200, max_broadcast_time=-1):
+# If not, graph may or may not be a broadcast graph
+def is_broadcast_graph(G, max_attempts=200):
+    # Must be a connected graph to be a broadcast graph
+    if not nx.is_connected(G):
+        return False
+
+    # Broadcast time of a broadcast graph is ceil(log2(|V|))
+    minimum_broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
+
+    # Diameter must be less than or equal to the mimimum broadcast time,
+    # otherwise not a broadcast graph
+    if minimum_broadcast_time < nx.diameter(G):
+        return False
+
+    # Preprocessing so the tree algorithm can run propertly
     G = nx.convert_node_labels_to_integers(G)
-    broadcast_time = max(math.ceil(math.log2(G.number_of_nodes())), max_broadcast_time)
+
+    # Stores total attempts for the statistics after
     total_attempts = 0
 
     for source in G.nodes:
         allowed_attempts = max_attempts
-        total_attempts += 1
-        spanning_tree = is_broadcast_spanning_tree_possible(G, source, broadcast_time)
-        while not spanning_tree and allowed_attempts > 0:
+        is_spanning_tree = False
+
+        # Tries to check if spanning tree is possible a few times for each node,
+        # if not, returns False
+        while not is_spanning_tree:
+            if allowed_attempts <= 0:
+                print("Fails at node", source)
+                return False
+
             total_attempts += 1
             allowed_attempts -= 1
-
-            spanning_tree = is_broadcast_spanning_tree_possible(
-                G, source, broadcast_time
+            is_spanning_tree = is_spanning_tree_possible(
+                G, source, minimum_broadcast_time
             )
 
-        if not spanning_tree:
-            print("Fails at node", source)
-            return False
-
+    # Returns True if sucessfully creates spanning tree for each node
     print("Average attempts per source: ", total_attempts / G.number_of_nodes())
     return True
 
 
+# Returns an upper bound of the broadcast time
+def get_broadcast_time(G, max_attempts=200):
+    # Must be a connected graph for there to be a broadcast time
+    if not nx.is_connected(G):
+        return None
+
+    # Lower bounds on the broadcast time of any graph
+    minimum_broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
+    diameter = nx.diameter(G)
+
+    # Starts searching at the lowest broadcast time possible for the graph
+    broadcast_time = max(minimum_broadcast_time, diameter)
+
+    # Preprocessing so the tree algorithm can run propertly
+    G = nx.convert_node_labels_to_integers(G)
+
+    for source in G.nodes:
+        allowed_attempts = max_attempts
+        is_spanning_tree = False
+
+        while not is_spanning_tree:
+            # If we fail to generate a tree with a specific broadcast time, we
+            # increase the broadcast time and try again
+            if allowed_attempts <= 0:
+                allowed_attempts = max_attempts
+                broadcast_time += 1
+                
+                # Max possible broadcast time for any connected graph
+                if broadcast_time >= G.number_of_nodes() - 1:
+                    return G.number_of_nodes() - 1
+
+            allowed_attempts -= 1
+            is_spanning_tree = is_spanning_tree_possible(G, source, broadcast_time)
+
+    return broadcast_time
+
+
 # Newest Version
-# Checks if we can create spanning tree of minimum broadcast time from a source
-# of any degree
-def is_broadcast_spanning_tree_possible(G, source, broadcast_time):
+# Checks if we can create a spanning tree of broadcast_time from a source in G
+def is_spanning_tree_possible(G, source, broadcast_time):
+    # Places all nodes visted in a queue
     queue = deque([source])
+
+    # Stored which nodes are visited
     visited = [False] * G.number_of_nodes()
     visited[source] = True
 
-    # stores the degree needed for each node to fulfill a broadcast spanning tree
-    expected_degree = [0] * G.number_of_nodes()
-    expected_degree[source] = broadcast_time
+    # stores the number of children needed for each node to fulfill a broadcast spanning tree.
+    expected_children = [0] * G.number_of_nodes()
+    # The expected broadcast time for tree will be the number of branches of the source.
+    expected_children[source] = broadcast_time
 
-    # preprocessing as the source is already visited
-    # reduces the degree of the source's neighbours, since we work with the available degree
+    # Preprocessing as the source is already visited.
+    # Reduces the degree of the source's neighbours, since we work with the available degree.
     remaining_degree = [degree for node, degree in G.degree]
     for source_neighbor in G.neighbors(source):
         remaining_degree[source_neighbor] -= 1
@@ -63,17 +120,18 @@ def is_broadcast_spanning_tree_possible(G, source, broadcast_time):
             neighbor for neighbor in G.neighbors(current_node) if not visited[neighbor]
         ]
         random.shuffle(unvisited_neighbors)
+
         sorted_neighbors = sorted(
             unvisited_neighbors, key=lambda x: remaining_degree[x], reverse=True
         )
 
         for neighbor in sorted_neighbors:
-            if expected_degree[current_node] == 0:
+            expected_children[current_node] -= 1
+
+            if expected_children[current_node] == -1:
                 break
 
-            expected_degree[current_node] -= 1
-            expected_degree[neighbor] = expected_degree[current_node]
-
+            expected_children[neighbor] = expected_children[current_node]
             visited[neighbor] = True
             queue.append(neighbor)
 
@@ -85,18 +143,18 @@ def is_broadcast_spanning_tree_possible(G, source, broadcast_time):
 
 
 # Shows all spanning tree
-def show_broadcast_spanning_trees(G, max_attempts=200, max_broadcast_time=-1):
+def show_spanning_trees(G, max_attempts=200, max_broadcast_time=-1):
     G = nx.convert_node_labels_to_integers(G)
     failed_nodes = 0
     broadcast_time = max(math.ceil(math.log2(G.number_of_nodes())), max_broadcast_time)
 
     for source in G.nodes:
         allowed_attempts = max_attempts
-        spanning_tree = generate_broadcast_spanning_tree(G, source, broadcast_time)
+        spanning_tree = None
 
         while not spanning_tree and allowed_attempts > 0:
             allowed_attempts -= 1
-            spanning_tree = generate_broadcast_spanning_tree(G, source, broadcast_time)
+            spanning_tree = generate_spanning_tree(G, source, broadcast_time)
 
         if not spanning_tree:
             failed_nodes += 1
@@ -127,16 +185,17 @@ def show_broadcast_spanning_trees(G, max_attempts=200, max_broadcast_time=-1):
 
 
 # Same logic as is_broadcast_spanning_tree_possible(), but returns the broadcast spanning tree if it is found
-def generate_broadcast_spanning_tree(G, source, broadcast_time):
+def generate_spanning_tree(G, source, broadcast_time):
     # creates a tree
     Tree = nx.Graph()
 
     queue = deque([source])
+
     visited = [False] * G.number_of_nodes()
     visited[source] = True
 
-    expected_degree = [0] * G.number_of_nodes()
-    expected_degree[source] = broadcast_time
+    expected_children = [0] * G.number_of_nodes()
+    expected_children[source] = broadcast_time
 
     remaining_degree = [degree for node, degree in G.degree]
     for source_neighbor in G.neighbors(source):
@@ -154,15 +213,15 @@ def generate_broadcast_spanning_tree(G, source, broadcast_time):
         )
 
         for neighbor in sorted_neighbors:
-            if expected_degree[current_node] == 0:
+            expected_children[current_node] -= 1
+
+            if expected_children[current_node] == -1:
                 break
 
             # Adds edge for each visited vertex
             Tree.add_edge(current_node, neighbor)
 
-            expected_degree[current_node] -= 1
-            expected_degree[neighbor] = expected_degree[current_node]
-
+            expected_children[neighbor] = expected_children[current_node]
             visited[neighbor] = True
             queue.append(neighbor)
 
@@ -170,10 +229,10 @@ def generate_broadcast_spanning_tree(G, source, broadcast_time):
                 remaining_degree[second_neighbor] -= 1
 
     # Returns the spanning tree if every vertex is visited
-    if visited.count(False) > 0:
-        return None
+    if visited.count(False) == 0:
+        return Tree
 
-    return Tree
+    return None
 
 
 # Version 2, code works, but only applies to v2 vertices and hard to grasp

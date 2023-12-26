@@ -8,7 +8,6 @@ File contains all broadcast trees of 24 vertices, source vertex degree 2
 """
 
 
-
 def main():
     attempts = 0
     for tree in trees:
@@ -19,7 +18,7 @@ def main():
                 raise ValueError("Issue with broadcast tree or algorithm, or unlucky probability")
             
             attempts += 1
-            spanning_tree = CheckBroadcastTime.generate_broadcast_spanning_tree(tree, 0, 5)
+            spanning_tree = CheckBroadcastTime.generate_spanning_tree(tree, 0, 5)
 
         node_colors = [
             "red" if node == 0 else "skyblue" for node in spanning_tree.nodes
