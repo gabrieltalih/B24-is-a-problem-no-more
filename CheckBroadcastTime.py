@@ -11,20 +11,28 @@ spanning trees from every node
 """
 
 
-# Checks if we can have a spanning tree of minimum broadcast time at every node
-# If possible, graph is a broadcast graph
-# If not, graph may or may not be a broadcast graph
+# Checks if a graph is a broadcast graph by seeing if its broadcast time is bounded
+# by the minimum broadcast time
 def is_broadcast_graph(G, max_attempts=200):
-    # Must be a connected graph to be a broadcast graph
+    minimum_broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
+
+    return is_broadcast_time_bounded(G, minimum_broadcast_time, max_attempts)
+
+
+# Checks if we can have a spanning tree of broadcast time at every node
+# If returns true, graph is upperbounded by that broadcast time
+# If returns false, graph may or may not be upperbounded by that broadcast time
+def is_broadcast_time_bounded(G, broadcast_time, max_attempts=200):
+    # Must be a connected graph to have a broadcast time
     if not nx.is_connected(G):
         return False
 
-    # Broadcast time of a broadcast graph is ceil(log2(|V|))
-    minimum_broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
+    # Broadcast time must be greater than or equal to ceil(log2(|V|))
+    if broadcast_time < math.ceil(math.log2(G.number_of_nodes())):
+        return False
 
-    # Diameter must be less than or equal to the mimimum broadcast time,
-    # otherwise not a broadcast graph
-    if minimum_broadcast_time < nx.diameter(G):
+    # Broadcast time must be greater than or equal to the diameter
+    if broadcast_time < nx.diameter(G):
         return False
 
     # Preprocessing so the tree algorithm can run propertly
@@ -34,59 +42,65 @@ def is_broadcast_graph(G, max_attempts=200):
     total_attempts = 0
 
     for source in G.nodes:
-        allowed_attempts = max_attempts
+        allowed_attempts = 0
         is_spanning_tree = False
 
         # Tries to check if spanning tree is possible a few times for each node,
         # if not, returns False
         while not is_spanning_tree:
-            if allowed_attempts <= 0:
+            if allowed_attempts >= max_attempts:
                 print("Fails at node", source)
                 return False
 
             total_attempts += 1
-            allowed_attempts -= 1
-            is_spanning_tree = is_spanning_tree_possible(
-                G, source, minimum_broadcast_time
-            )
+            allowed_attempts += 1
+            is_spanning_tree = is_spanning_tree_possible(G, source, broadcast_time)
 
     # Returns True if sucessfully creates spanning tree for each node
     print("Average attempts per source: ", total_attempts / G.number_of_nodes())
     return True
 
 
-# Returns an upper bound of the broadcast time
-def get_broadcast_time(G, max_attempts=200):
+# Returns the approximate broadcast time of a graph
+# Note that the value returned is an upperbound on the broadcast time,
+# where the actual broadcast time may be lower
+# Use the lower_bound to skip times < t if graph is known to be lowerbounded by
+# a certain time t
+def get_broadcast_time(G, max_attempts=200, lower_bound=0):
     # Must be a connected graph for there to be a broadcast time
     if not nx.is_connected(G):
         return None
+
+    # We can skip the algorithm in this case
+    if lower_bound >= G.number_of_nodes() - 1:
+        return G.number_of_nodes() - 1
 
     # Lower bounds on the broadcast time of any graph
     minimum_broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
     diameter = nx.diameter(G)
 
     # Starts searching at the lowest broadcast time possible for the graph
-    broadcast_time = max(minimum_broadcast_time, diameter)
+    broadcast_time = max(minimum_broadcast_time, diameter, lower_bound)
 
     # Preprocessing so the tree algorithm can run propertly
     G = nx.convert_node_labels_to_integers(G)
 
     for source in G.nodes:
-        allowed_attempts = max_attempts
+        allowed_attempts = 0
         is_spanning_tree = False
 
         while not is_spanning_tree:
             # If we fail to generate a tree with a specific broadcast time, we
             # increase the broadcast time and try again
-            if allowed_attempts <= 0:
-                allowed_attempts = max_attempts
+            if allowed_attempts >= max_attempts:
+                allowed_attempts = 0
                 broadcast_time += 1
-                
+
                 # Max possible broadcast time for any connected graph
                 if broadcast_time >= G.number_of_nodes() - 1:
                     return G.number_of_nodes() - 1
 
-            allowed_attempts -= 1
+            allowed_attempts += 1
             is_spanning_tree = is_spanning_tree_possible(G, source, broadcast_time)
 
     return broadcast_time
@@ -126,11 +140,10 @@ def is_spanning_tree_possible(G, source, broadcast_time):
         )
 
         for neighbor in sorted_neighbors:
-            expected_children[current_node] -= 1
-
-            if expected_children[current_node] == -1:
+            if expected_children[current_node] <= 0:
                 break
 
+            expected_children[current_node] -= 1
             expected_children[neighbor] = expected_children[current_node]
             visited[neighbor] = True
             queue.append(neighbor)
@@ -142,17 +155,20 @@ def is_spanning_tree_possible(G, source, broadcast_time):
     return visited.count(False) == 0
 
 
-# Shows all spanning tree
-def show_spanning_trees(G, max_attempts=200, max_broadcast_time=-1):
+# Shows all spanning tree of graph of broadcast_time
+def show_spanning_trees(G, max_attempts=200, broadcast_time=None):
     G = nx.convert_node_labels_to_integers(G)
     failed_nodes = 0
-    broadcast_time = max(math.ceil(math.log2(G.number_of_nodes())), max_broadcast_time)
+
+    # Defualt value
+    if broadcast_time == None:
+        broadcast_time = math.ceil(math.log2(G.number_of_nodes()))
 
     for source in G.nodes:
-        allowed_attempts = max_attempts
+        allowed_attempts = 0
         spanning_tree = None
 
-        while not spanning_tree and allowed_attempts > 0:
+        while not spanning_tree and allowed_attempts < max_attempts:
             allowed_attempts -= 1
             spanning_tree = generate_spanning_tree(G, source, broadcast_time)
 
@@ -179,12 +195,12 @@ def show_spanning_trees(G, max_attempts=200, max_broadcast_time=-1):
         plt.show()
 
     if failed_nodes > 0:
-        print("Could not find broadcast spanning tree for", failed_nodes, "nodes")
+        print("Could not find spanning tree for", failed_nodes, "nodes")
     else:
-        print("Found a broadcast spanning tree for every node")
+        print("Found a spanning tree for every node")
 
 
-# Same logic as is_broadcast_spanning_tree_possible(), but returns the broadcast spanning tree if it is found
+# Same logic as is_spanning_tree_possible(), but returns the broadcast spanning tree if it is found
 def generate_spanning_tree(G, source, broadcast_time):
     # creates a tree
     Tree = nx.Graph()
@@ -213,14 +229,13 @@ def generate_spanning_tree(G, source, broadcast_time):
         )
 
         for neighbor in sorted_neighbors:
-            expected_children[current_node] -= 1
-
-            if expected_children[current_node] == -1:
+            if expected_children[current_node] <= 0:
                 break
 
             # Adds edge for each visited vertex
             Tree.add_edge(current_node, neighbor)
 
+            expected_children[current_node] -= 1
             expected_children[neighbor] = expected_children[current_node]
             visited[neighbor] = True
             queue.append(neighbor)
