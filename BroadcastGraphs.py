@@ -9,7 +9,7 @@ First and second graph are broadcast graphs, while the third graph is not, but w
 def main():
     for i in range(3):
         showBroacastGraph(i)
-        CheckBroadcastTime.show_broadcast_spanning_trees(graphs[i])
+        CheckBroadcastTime.show_spanning_trees(graphs[i])
 
 
 graphs = [None] * 3
